@@ -123,6 +123,7 @@ contract Project {
     }
 
     function toggleProjectStatus() public onlyAdmin {
+        require(status == Status.active || status == Status.onhold, "project should be in active/ onhold status");
         if(status == Status.active) {
             status = Status.onhold;
         } else if(status == Status.onhold) {
