@@ -70,6 +70,12 @@ contract Project {
         _;
     }
 
+    modifier isSRReady(uint256 _requestID) {
+        require(status == Status.fulfilled, "not yet fulfilled");
+        require(SpendingRequests[_requestID].hasFulfilled == false, "already paid");
+        _;
+    }
+
     // try return type as array and memory or calldata. see the error
     function contribute() public payable returns(uint256 _tokenId) {
         require(status == Status.active, "not an active project");
@@ -94,19 +100,6 @@ contract Project {
         }
 
         if(contributors[msg.sender] >= badgeAmount) {
-
-            // uint256 _potentialTokenCount = contributors[msg.sender] / 1;
-            // uint256 _actualTokenCount = _potentialTokenCount - badgeCountByDonor[msg.sender];
-
-            // potential issue with gas??
-            //for(uint256 i = 0; i < _actualTokenCount; ++i) {
-            //    uint256 _tokenId = badge.awardBadge(msg.sender);
-            //    return multiple badge id to donor
-            //    _tokenIds.push(_tokenId);
-            //    badgeByDonor[_tokenId] = msg.sender;
-            //    badgeCountByDonor[msg.sender] += 1;
-            //}
-
             _tokenId = badge.awardBadge(msg.sender);
             badgeByDonor[_tokenId] = msg.sender;
             badgeCountByDonor[msg.sender] += 1;
@@ -170,9 +163,7 @@ contract Project {
         return _requestID;
     }
 
-    function vote(uint256 _requestID, bool _opinion) public {
-        require(status == Status.fulfilled, "not yet fulfilled");
-        require(SpendingRequests[_requestID].hasFulfilled == false, "already paid");
+    function vote(uint256 _requestID, bool _opinion) public isSRReady(_requestID) {
         require(contributors[msg.sender] > 0, "not a contributor");
 
         if(_opinion == true) {
@@ -182,9 +173,7 @@ contract Project {
         }
     }
 
-    function payMoney(uint256 _requestID) public onlyAdmin() {
-        require(status == Status.fulfilled, "not yet fulfilled");
-        require(SpendingRequests[_requestID].hasFulfilled == false, "already paid");
+    function payMoney(uint256 _requestID) public onlyAdmin() isSRReady(_requestID) {
         require(SpendingRequests[_requestID].votedFor > numberOfContributors / 2, "majority didn't agree");
 
         SpendingRequests[_requestID].hasFulfilled = true;
