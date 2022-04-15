@@ -97,7 +97,7 @@ contract Project {
 
         if(contributors[msg.sender] >= badgeAmount) {
 
-            uint256 _potentialTokenCount = contributors[msg.sender] / 1;
+            uint256 _potentialTokenCount = contributors[msg.sender] / badgeAmount;
             uint256 _actualTokenCount = _potentialTokenCount - badgeCountByDonor[msg.sender];
 
             for(uint256 i = 0; i < _actualTokenCount; ++i) {
