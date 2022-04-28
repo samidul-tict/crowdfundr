@@ -2,9 +2,9 @@
 
 pragma solidity 0.8.4;
 
-import "./Badge.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
-contract Project {
+contract Project is ERC721{
 
     enum Status {
         active,
@@ -25,8 +25,6 @@ contract Project {
         string description;
     }
 
-    Badge badge;
-
     address public admin;
     Status status;
     uint256 public immutable goalAmount;
@@ -35,6 +33,7 @@ contract Project {
     uint256 public totalFundRaised;
     uint256 public immutable minContribution;
     uint256 public immutable badgeAmount;
+    uint256 private tokenId;
     uint256 private srCounter;
 
     mapping (address => uint256) public contributors;
@@ -53,14 +52,13 @@ contract Project {
         uint256 _minContribution,
         uint256 _badgeAmount,
         string memory _name, 
-        string memory _symbol) {
+        string memory _symbol) ERC721(_name, _symbol) {
             admin = _admin;
             goalAmount = _goalAmount;
             deadline = block.timestamp + _maturityInDays;
             minContribution = _minContribution;
             badgeAmount = _badgeAmount;
             status = Status.active;
-            badge = new Badge(_name, _symbol);
     }
 
     modifier onlyAdmin() {
@@ -72,6 +70,11 @@ contract Project {
         require(status == Status.fulfilled, "not yet fulfilled");
         require(SpendingRequests[_requestID].hasFulfilled == false, "already paid");
         _;
+    }
+
+    function awardBadge(address _donor) internal {
+        ++tokenId;
+        _safeMint(_donor, tokenId);
     }
 
     function contribute() public payable {
@@ -101,8 +104,8 @@ contract Project {
             uint256 _actualTokenCount = _potentialTokenCount - badgeCountByDonor[msg.sender];
 
             for(uint256 i = 0; i < _actualTokenCount; ++i) {
-                uint256 _tokenId = badge.awardBadge(msg.sender);
-                badgeCountByDonor[msg.sender] += 1;
+                awardBadge(msg.sender);
+                ++badgeCountByDonor[msg.sender];
             }
             
         }
@@ -136,33 +139,43 @@ contract Project {
         emit UpdateProjectStatus(msg.sender, address(this), "toggled status");
     }
 
-    function refundContributor() external returns(bool _status) {
+    function refundContributor() external {
         require(status == Status.canceled || status == Status.failed, "not ready to refund");
         if(contributors[msg.sender] > 0) {
             contributors[msg.sender] = 0;
-            (_status, ) = payable(msg.sender).call{value: contributors[msg.sender]}("");
+            (bool _status, ) = payable(msg.sender).call{value: contributors[msg.sender]}("");
 
             if(_status) {
                 emit RefundContributor(msg.sender, address(this), contributors[msg.sender]);
             }
+        } else {
+            revert("does not have enough balance");
         }
+    }
+
+    function getTotalContribution(address _donor) public view returns(uint256 _totalContribution) {
+        _totalContribution = contributors[_donor];
     }
 
     function createSpendingRequest(
         address payable _recipient, 
         uint256 _amount, 
         string memory _description
-    ) public onlyAdmin() returns(uint256 _requestID) {
-        _requestID = srCounter;
-        SpendingRequest storage spendingRequest = SpendingRequests[_requestID];
-        ++srCounter;
+    ) public onlyAdmin() returns(uint256) {
+        SpendingRequest storage spendingRequest = SpendingRequests[srCounter];
         spendingRequest.recipient = _recipient;
         spendingRequest.amount = _amount;
         spendingRequest.description = _description;
         spendingRequest.dateCreated = block.timestamp;
         spendingRequest.hasFulfilled = false;
-        emit CreateSpendingRequest(msg.sender, _requestID);
-        return _requestID;
+        emit CreateSpendingRequest(msg.sender, srCounter);
+        ++srCounter;
+        return srCounter - 1;
+    }
+
+    function getCurrentCounter() public view returns(uint256 _counter) {
+        _counter = srCounter - 1;
+        return _counter;
     }
 
     function vote(uint256 _requestID, bool _opinion) public isSRReady(_requestID) {
@@ -176,7 +189,7 @@ contract Project {
     }
 
     function payMoney(uint256 _requestID) public onlyAdmin() isSRReady(_requestID) {
-        require(SpendingRequests[_requestID].votedFor > numberOfContributors / 2, "majority didn't agree");
+        require(SpendingRequests[_requestID].votedFor > numberOfContributors / 2, "majority did not agree");
 
         SpendingRequests[_requestID].hasFulfilled = true;
         (bool _status, ) = (SpendingRequests[_requestID].recipient).call{value: SpendingRequests[_requestID].amount}("");

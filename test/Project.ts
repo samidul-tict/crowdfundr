@@ -1,9 +1,10 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
+import { BigNumber } from "ethers";
 import { Project } from "../typechain/";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
-describe("CrowdFundRaise", function () {
+describe("Project", function () {
 
   let proj: Project;
   let sami: SignerWithAddress;
@@ -12,25 +13,31 @@ describe("CrowdFundRaise", function () {
   let ana: SignerWithAddress;
   let response;
 
-  this.beforeAll(async function() {
+  this.beforeEach(async function() {
 
     [sami, alice, bob, ana] = await ethers.getSigners();
     const Project = await ethers.getContractFactory("Project");
-    const proj = await Project.connect(sami).deploy(
+    proj = (await Project.connect(sami).deploy(
       sami.address,
-      100000000000000000000,
+      ethers.utils.parseEther("100.0"),
       30,
-      10000000000000000,
-      1000000000000000000,
+      ethers.utils.parseEther("0.01"),
+      ethers.utils.parseEther("1.0"),
       "Sam's NFT",
-      "SAMI");
+      "SAMI")) as Project;
     await proj.deployed();
     console.log("contract address: ", proj.address);
   });
 
-  it("contribute to a project", async function () {
+  it("contribute below minimum amount to an active project", async function () {
 
-    response = await proj.connect(alice).contribute({value: ethers.utils.parseEther("1.0")});
+    await expect(proj.connect(alice).contribute({value: ethers.utils.parseEther("0.0001")}))
+    .to.be.revertedWith("give minimum fund");
+  });
+
+  it("contribute to an active project", async function () {
+
+    await proj.connect(alice).contribute({value: ethers.utils.parseEther("1.0")});
 
     const tx = {
       to: proj.address,
@@ -38,103 +45,140 @@ describe("CrowdFundRaise", function () {
     }
     
     await bob.sendTransaction(tx);
+  });
+
+  it("contribute to a cancelled project", async function () {
 
     // try to donate to a cancelled project
     await proj.connect(sami).cancelProject();
-    response = await proj.connect(alice).contribute({value: ethers.utils.parseEther("1.0")});
+    await expect(proj.connect(alice).contribute({value: ethers.utils.parseEther("1.0")}))
+    .to.be.revertedWith("not an active project");
   });
 
-  it("cancel a project", async function () {
+  it("contribute to a fulfilled project", async function () {
 
-    // try to cancel by someone other than the admin
-    await proj.connect(alice).cancelProject();
+    await proj.connect(alice).contribute({value: ethers.utils.parseEther("101.0")});
+    await expect(proj.connect(bob).contribute({value: ethers.utils.parseEther("1.0")}))
+    .to.be.revertedWith("not an active project");
+  });
 
-    await proj.connect(sami).cancelProject();
+  it("contribute to a hold project", async function () {
 
-    // try to cancel a fulfilled project
-    response = await proj.connect(alice).contribute({value: ethers.utils.parseEther("100.0")});
+    await proj.connect(sami).toggleProjectStatus();
+    await expect(proj.connect(bob).contribute({value: ethers.utils.parseEther("1.0")}))
+    .to.be.revertedWith("not an active project");
+  });
+
+  it("cancel a fulfilled project", async function () {
+
+    response = await proj.connect(alice).contribute({value: ethers.utils.parseEther("101.0")});
+    await expect(proj.connect(sami).cancelProject()).to.be.revertedWith("fulfilled project cannot be cancelled");
+  });
+
+  it("cancel a project by admin", async function () {
+
     await proj.connect(sami).cancelProject();
   });
 
-  it("toggle project status", async function () {
+  it("cancel a project by other than admin", async function () {
 
-    // try to toggle status by someone other than the admin
-    await proj.connect(alice).toggleProjectStatus();
+    await expect(proj.connect(alice).cancelProject()).to.be.revertedWith("not a valid admin");
+  });
+
+  it("toggle a project status by admin", async function () {
 
     await proj.connect(sami).toggleProjectStatus();
-
-    // toggle status of a fulfilled project
-    response = await proj.connect(alice).contribute({value: ethers.utils.parseEther("100.0")});
-    await proj.connect(sami).toggleProjectStatus();
-
-    // toggle status of a cancelled project
-    await proj.connect(sami).cancelProject();
     await proj.connect(sami).toggleProjectStatus();
   });
 
-  it("refund a contributor", async function () {
+  it("toggle a project status by someone other than the admin", async function () {
 
-    // get refund from a cancelled project
-    await proj.connect(sami).cancelProject();
-    response = await proj.connect(alice).refundContributor();
-    console.log("refund to alice: ", response);
-
-    // try to get refund when not a contributor
-    response = await proj.connect(ana).refundContributor();
-    console.log("refund to ana: ", response);
-
-    // get refund from an active project
-    response = await proj.connect(alice).refundContributor();
-    console.log("refund to alice: ", response);
-
-    // get refund from an onhold project
-    await proj.connect(sami).toggleProjectStatus();
-    response = await proj.connect(alice).refundContributor();
-    console.log("refund to alice: ", response);
+    await expect(proj.connect(alice).toggleProjectStatus()).to.be.revertedWith("not a valid admin");
   });
 
-  it("create spending request", async function () {
+  it("toggle project status which is neither active nor on-hold", async function () {
+
+    response = await proj.connect(alice).contribute({value: ethers.utils.parseEther("101.0")});
+    await expect(proj.connect(sami).toggleProjectStatus())
+    .to.be.revertedWith("project should be in active/ onhold status");
+  });
+
+  it("get refund from a cancelled project by a contributor", async function () {
+
+    await proj.connect(alice).contribute({value: ethers.utils.parseEther("1.0")});
+    await proj.connect(sami).cancelProject();
+    await proj.connect(alice).refundContributor();
+    response = await proj.getTotalContribution(alice.address);
+    //console.log("response: ", response);
+    expect(response).to.equal(0);
+  });
+
+  it("get refund from a cancelled project by a non-contributor", async function () {
+
+    await proj.connect(alice).contribute({value: ethers.utils.parseEther("1.0")});
+    await proj.connect(sami).cancelProject();
+    await expect(proj.connect(ana).refundContributor()).to.be.revertedWith("does not have enough balance");
+  });
+
+  it("get refund from an active project by a contributor", async function () {
+
+    await proj.connect(alice).contribute({value: ethers.utils.parseEther("1.0")});
+    await expect(proj.connect(alice).refundContributor()).to.be.revertedWith("not ready to refund");
+  });
+
+  it("create spending request by admin", async function () {
     
-    // create spending request by someone other than admin
-    response = await proj.connect(alice).createSpendingRequest(ana.address, 100000000000000000000, "sending to Ana");
-
-    response = await proj.connect(sami).createSpendingRequest(ana.address, 100000000000000000000, "sending to Ana");
-    console.log("created spending request: ", response);
+    await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
   });
 
-  it("vote for a spending request", async function () {
-
-    response = await proj.connect(sami).createSpendingRequest(ana.address, 100000000000000000000, "sending to Ana");
-
-    // try to vote when not a contributor
-    response = await proj.connect(ana).vote(response._requestID, true);
-
-    response = await proj.connect(alice).vote(response._requestID, true);
-    response = await proj.connect(bob).vote(response._requestID, false);
+  it("create spending request by someone other than admin", async function () {
+    
+    await expect(proj.connect(alice).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana"))
+    .to.be.revertedWith("not a valid admin");
   });
 
-  it("pay money to an approved spending request", async function () {
+  it("ddddddddddddd", async function () {
+    
+    const unresolvedReceipt = await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
+      const resolvedReceipt = await unresolvedReceipt.wait();
+      console.log(resolvedReceipt.events);
 
-    response = await proj.connect(sami).createSpendingRequest(ana.address, 100000000000000000000, "sending to Ana");
+      const unresolvedReceipt1 = await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
+      const resolvedReceipt1 = await unresolvedReceipt.wait();
+      const event = resolvedReceipt1.events?.find(event => event.event === "CreateSpendingRequest");
+      //const argsList[] = event?.args;
+      // let next;
+      // while ((next = iterator?.find.name    done === false) {
+      //   values.push(next.value);
+      // }
+      // for (var val of argsList) {
+      //   console.log(val);
+      // }
+      // console.log(event?.args[3]);
+  });
 
-    // try to pay money to the receipient by someone other than the admin
-    response = await proj.connect(alice).contribute({value: ethers.utils.parseEther("100.0")});
-    response = await proj.connect(alice).payMoney(response._requestID);
+  describe("Vote", function () {
 
-    // try to pay money to the receipient by someone other than the admin during fulfilled stage
-    response = await proj.connect(alice).contribute({value: ethers.utils.parseEther("100.0")});
-    response = await proj.connect(alice).payMoney(response._requestID);
+    let requestID: BigInteger;
 
-    // try to pay money to the receipient by the admin during fulfilled stage
-    response = await proj.connect(sami).contribute({value: ethers.utils.parseEther("100.0")});
-    response = await proj.connect(sami).payMoney(response._requestID);
+    this.beforeAll(async function() {
 
-    // try to re-pay money to the same receipient by the admin during fulfilled stage
-    response = await proj.connect(sami).contribute({value: ethers.utils.parseEther("100.0")});
-    response = await proj.connect(sami).payMoney(response._requestID);
+      const unresolvedReceipt = await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
+      const resolvedReceipt = await unresolvedReceipt.wait();
+      console.log(resolvedReceipt.events);
+      //requestID = await proj.getCurrentCounter();
+    });
 
-    // try again now
-    response = await proj.connect(sami).payMoney(response._requestID);
+    // it("vote for a spending request as a contributor", async function () {
+
+    //   await proj.connect(alice).vote(requestID, true);
+    //   await proj.connect(bob).vote(requestID, false);
+    // });
+
+    // it("vote for a spending request not as a contributor", async function () {
+
+    //   await expect(proj.connect(ana).vote(requestID, true)).to.be.revertedWith("not a contributor");
+    // });
   });
 
 });
