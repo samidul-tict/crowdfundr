@@ -117,7 +117,7 @@ contract Project is ERC721{
     }
 
     fallback() external {
-        // do nothing
+        contribute();
     }
 
     function cancelProject() public onlyAdmin {

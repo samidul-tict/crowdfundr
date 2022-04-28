@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import { BigNumber } from "ethers";
 import { Project } from "../typechain/";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
+import { eventNames } from "process";
 
 describe("Project", function () {
 
@@ -137,29 +138,26 @@ describe("Project", function () {
     .to.be.revertedWith("not a valid admin");
   });
 
-  it("ddddddddddddd", async function () {
+  it.only("ddddddddddddd", async function () {
     
-    const unresolvedReceipt = await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
+    const unresolvedReceipt = await proj.connect(sami).createSpendingRequest(
+      ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
       const resolvedReceipt = await unresolvedReceipt.wait();
-      console.log(resolvedReceipt.events);
+      //console.log(resolvedReceipt.events);
 
       const unresolvedReceipt1 = await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
       const resolvedReceipt1 = await unresolvedReceipt.wait();
       const event = resolvedReceipt1.events?.find(event => event.event === "CreateSpendingRequest");
-      //const argsList[] = event?.args;
-      // let next;
-      // while ((next = iterator?.find.name    done === false) {
-      //   values.push(next.value);
-      // }
-      // for (var val of argsList) {
+      const argsList = event?.args;
+      // for(var val of argsList) {
       //   console.log(val);
       // }
-      // console.log(event?.args[3]);
+      console.log(argsList);
   });
 
   describe("Vote", function () {
 
-    let requestID: BigInteger;
+    let requestID: BigNumber;
 
     this.beforeAll(async function() {
 
@@ -169,16 +167,40 @@ describe("Project", function () {
       //requestID = await proj.getCurrentCounter();
     });
 
-    // it("vote for a spending request as a contributor", async function () {
+    it("vote for a spending request as a contributor", async function () {
 
-    //   await proj.connect(alice).vote(requestID, true);
-    //   await proj.connect(bob).vote(requestID, false);
-    // });
+      await proj.connect(alice).vote(requestID, true);
+      await proj.connect(bob).vote(requestID, false);
+    });
 
-    // it("vote for a spending request not as a contributor", async function () {
+    it("vote for a spending request not as a contributor", async function () {
 
-    //   await expect(proj.connect(ana).vote(requestID, true)).to.be.revertedWith("not a contributor");
-    // });
+      await expect(proj.connect(ana).vote(requestID, true)).to.be.revertedWith("not a contributor");
+    });
+  });
+
+  describe("pay money", function () {
+
+    let requestID: BigNumber;
+
+    this.beforeAll(async function() {
+
+      const unresolvedReceipt = await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
+      const resolvedReceipt = await unresolvedReceipt.wait();
+      console.log(resolvedReceipt.events);
+      //requestID = await proj.getCurrentCounter();
+    });
+
+    it("vote for a spending request as a contributor", async function () {
+
+      await proj.connect(alice).vote(requestID, true);
+      await proj.connect(bob).vote(requestID, false);
+    });
+
+    it("vote for a spending request not as a contributor", async function () {
+
+      await expect(proj.connect(ana).vote(requestID, true)).to.be.revertedWith("not a contributor");
+    });
   });
 
 });
