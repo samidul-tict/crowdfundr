@@ -110,7 +110,6 @@ describe("Project", function () {
     await proj.connect(sami).cancelProject();
     await proj.connect(alice).refundContributor();
     response = await proj.getTotalContribution(alice.address);
-    //console.log("response: ", response);
     expect(response).to.equal(0);
   });
 
@@ -138,33 +137,19 @@ describe("Project", function () {
     .to.be.revertedWith("not a valid admin");
   });
 
-  it.only("ddddddddddddd", async function () {
-    
-    const unresolvedReceipt = await proj.connect(sami).createSpendingRequest(
-      ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
-      const resolvedReceipt = await unresolvedReceipt.wait();
-      //console.log(resolvedReceipt.events);
-
-      const unresolvedReceipt1 = await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
-      const resolvedReceipt1 = await unresolvedReceipt.wait();
-      const event = resolvedReceipt1.events?.find(event => event.event === "CreateSpendingRequest");
-      const argsList = event?.args;
-      // for(var val of argsList) {
-      //   console.log(val);
-      // }
-      console.log(argsList);
-  });
-
   describe("Vote", function () {
 
     let requestID: BigNumber;
 
-    this.beforeAll(async function() {
+    this.beforeEach(async function() {
 
       const unresolvedReceipt = await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
       const resolvedReceipt = await unresolvedReceipt.wait();
-      console.log(resolvedReceipt.events);
-      //requestID = await proj.getCurrentCounter();
+      const event = resolvedReceipt.events?.find(event => event.event === "CreateSpendingRequest");
+      requestID = event?.args?.slice().pop();
+      //console.log(requestID);
+      await proj.connect(alice).contribute({value: ethers.utils.parseEther("1.0")});
+      await proj.connect(bob).contribute({value: ethers.utils.parseEther("1.0")});
     });
 
     it("vote for a spending request as a contributor", async function () {
@@ -173,33 +158,75 @@ describe("Project", function () {
       await proj.connect(bob).vote(requestID, false);
     });
 
-    it("vote for a spending request not as a contributor", async function () {
+    it("vote for a spending request as a non-contributor", async function () {
 
       await expect(proj.connect(ana).vote(requestID, true)).to.be.revertedWith("not a contributor");
+    });
+
+    it("vote for a paid spending request as a contributor", async function () {
+
+      await proj.connect(alice).vote(requestID, true);
+      await proj.connect(bob).vote(requestID, true);
+      await proj.connect(alice).contribute({value: ethers.utils.parseEther("101.0")});
+      await proj.connect(sami).payMoney(requestID);
+      await expect(proj.connect(alice).vote(requestID, true)).to.be.revertedWith("already paid");
     });
   });
 
-  describe("pay money", function () {
+  describe.only("pay money", function () {
 
     let requestID: BigNumber;
 
-    this.beforeAll(async function() {
+    this.beforeEach(async function() {
 
       const unresolvedReceipt = await proj.connect(sami).createSpendingRequest(ana.address, ethers.utils.parseEther("10.0"), "sending to Ana");
       const resolvedReceipt = await unresolvedReceipt.wait();
-      console.log(resolvedReceipt.events);
-      //requestID = await proj.getCurrentCounter();
+      const event = resolvedReceipt.events?.find(event => event.event === "CreateSpendingRequest");
+      requestID = event?.args?.slice().pop();
+      await proj.connect(alice).contribute({value: ethers.utils.parseEther("1.0")});
+      await proj.connect(bob).contribute({value: ethers.utils.parseEther("1.0")});
+      await proj.connect(ana).contribute({value: ethers.utils.parseEther("1.0")});
     });
 
-    it("vote for a spending request as a contributor", async function () {
+    it("pay money by admin", async function () {
 
       await proj.connect(alice).vote(requestID, true);
-      await proj.connect(bob).vote(requestID, false);
+      await proj.connect(bob).vote(requestID, true);
+      await proj.connect(alice).contribute({value: ethers.utils.parseEther("101.0")});
+      await proj.connect(sami).payMoney(requestID);
     });
 
-    it("vote for a spending request not as a contributor", async function () {
+    it("pay money by someone other than admin", async function () {
 
-      await expect(proj.connect(ana).vote(requestID, true)).to.be.revertedWith("not a contributor");
+      await proj.connect(alice).vote(requestID, true);
+      await proj.connect(bob).vote(requestID, true);
+      await proj.connect(alice).contribute({value: ethers.utils.parseEther("101.0")});
+      await expect(proj.connect(alice).payMoney(requestID)).to.be.revertedWith("not a valid admin");
+    });
+
+    it("an attempt by admin to spend the money for the second time", async function () {
+
+      await proj.connect(alice).vote(requestID, true);
+      await proj.connect(bob).vote(requestID, true);
+      await proj.connect(alice).contribute({value: ethers.utils.parseEther("101.0")});
+      await proj.connect(sami).payMoney(requestID);
+      console.log("paid for the first time");
+      await expect(proj.connect(sami).payMoney(requestID)).to.be.revertedWith("already paid");
+    });
+
+    it("an attempt by admin to spend the money when status != fulfilled", async function () {
+
+      await proj.connect(alice).vote(requestID, true);
+      await proj.connect(bob).vote(requestID, true);
+      await expect(proj.connect(sami).payMoney(requestID)).to.be.revertedWith("not yet fulfilled");
+    });
+
+    it("an attempt by admin to spend the money when quoram has not reached", async function () {
+
+      await proj.connect(alice).vote(requestID, false);
+      await proj.connect(bob).vote(requestID, false);
+      await proj.connect(alice).contribute({value: ethers.utils.parseEther("101.0")});
+      await expect(proj.connect(sami).payMoney(requestID)).to.be.revertedWith("majority did not agree");
     });
   });
 

@@ -173,14 +173,10 @@ contract Project is ERC721{
         return srCounter - 1;
     }
 
-    function getCurrentCounter() public view returns(uint256 _counter) {
-        _counter = srCounter - 1;
-        return _counter;
-    }
-
-    function vote(uint256 _requestID, bool _opinion) public isSRReady(_requestID) {
+    function vote(uint256 _requestID, bool _opinion) public {
         require(contributors[msg.sender] > 0, "not a contributor");
-
+        require(SpendingRequests[_requestID].hasFulfilled == false, "already paid");
+        
         if(_opinion == true) {
             ++SpendingRequests[_requestID].votedFor;
         } else {
